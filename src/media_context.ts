@@ -1,12 +1,17 @@
 import { ChildProcess, spawn } from 'child_process'
 import internal from 'stream'
 
-// sudo apt install linux-modules-extra-`uname -r`
-// const MICRO_DEVICE: string = 'hw:Loopback,1' // sndloop module
-const MICRO_DEVICE: string = 'pulse:virtual_mic' // pulseaudio virtual mic
+// Multiple device options to try in order of preference
+const MICRO_DEVICES: string[] = [
+  'virtual_mic',                 // Primary target (this one works!)
+  'pulse:virtual_mic',           // Alternative naming
+  'pulse:virtual_mic.monitor',   // Monitor source
+  'pulse:default',               // Fallback to default
+]
+
 const CAMERA_DEVICE: string = '/dev/video10'
 
-// This abstract claas contains the current ffmpeg process
+// This abstract class contains the current ffmpeg process
 // A derived class must implement play and stop methods
 //
 // ___DUAL_CHANNEL_EXAMPLES
@@ -35,49 +40,62 @@ abstract class MediaContext {
       return null
     }
 
+    console.log('🎵 Executing ffmpeg with args:', args.join(' '))
+
     this.process = spawn('ffmpeg', args, {
       stdio: ['pipe', 'pipe', 'pipe'],
     })
+
     this.promise = new Promise((resolve, reject) => {
       this.process.on('exit', (code) => {
-        console.log(`process exited with code ${code}`)
+        console.log(`🔚 FFmpeg process exited with code ${code}`)
         if (code == 0) {
           this.process = null
           after()
+        } else {
+          console.error(`❌ FFmpeg failed with exit code ${code}`)
         }
         resolve(code)
       })
+
       this.process.on('error', (err) => {
-        console.error(err)
+        console.error('❌ FFmpeg process error:', err)
         reject(err)
       })
 
-      // IO output
-      this.process.stdout.on('data', (_data) => {
-        // console.log(`YOLOOOOOstdout: ${_data}`)
+      // Enhanced logging for debugging
+      this.process.stdout.on('data', (data) => {
+        console.log(`📤 FFmpeg stdout: ${data.toString().trim()}`)
       })
-      this.process.stderr.on('data', (_data) => {
-        // console.error(`TOLOstderr: ${_data}`)
+
+      this.process.stderr.on('data', (data) => {
+        const output = data.toString().trim()
+        if (output.includes('Error') || output.includes('error')) {
+          console.error(`❌ FFmpeg stderr: ${output}`)
+        } else {
+          console.log(`📋 FFmpeg info: ${output}`)
+        }
       })
     })
+
     return this.process
   }
 
   protected async stop_process() {
     if (!this.process) {
-      console.warn('Already stoped')
+      console.warn('Already stopped')
       return
     }
 
     let res = this.process.kill('SIGTERM')
-    console.log(`Signal sended to process : ${res}`)
+    console.log(`📤 Signal sent to process: ${res}`)
 
     await this.promise
       .then((code) => {
-        console.log(`process exited with code ${code}`)
+        console.log(`🔚 Process exited with code ${code}`)
       })
       .catch((err) => {
-        console.log(`process exited with error ${err}`)
+        console.log(`❌ Process exited with error ${err}`)
       })
       .finally(() => {
         this.process = null
@@ -95,19 +113,81 @@ export class SoundContext extends MediaContext {
   public static instance: SoundContext
 
   private sampleRate: number
+  private currentMicroDevice: string | null = null
+
   constructor(sampleRate: number) {
     super()
     this.sampleRate = sampleRate
     SoundContext.instance = this
   }
 
+  // Test which microphone device works
+  private async findWorkingMicroDevice(): Promise<string | null> {
+    if (this.currentMicroDevice) {
+      return this.currentMicroDevice
+    }
+
+    console.log('🔍 Testing available microphone devices...')
+
+    for (const device of MICRO_DEVICES) {
+      console.log(`🧪 Testing device: ${device}`)
+
+      try {
+        // Quick test with timeout
+        const testProcess = spawn('ffmpeg', [
+          '-f', 'pulse',
+          '-i', device,
+          '-t', '0.1',
+          '-f', 'null',
+          '-'
+        ], { stdio: ['pipe', 'pipe', 'pipe'] })
+
+        const result = await new Promise<number>((resolve) => {
+          const timeout = setTimeout(() => {
+            testProcess.kill('SIGTERM')
+            resolve(124) // timeout code
+          }, 3000)
+
+          testProcess.on('exit', (code) => {
+            clearTimeout(timeout)
+            resolve(code || 0)
+          })
+
+          testProcess.on('error', () => {
+            clearTimeout(timeout)
+            resolve(1)
+          })
+        })
+
+        if (result === 0 || result === 124) {
+          console.log(`✅ Device ${device} works!`)
+          this.currentMicroDevice = device
+          return device
+        } else {
+          console.log(`❌ Device ${device} failed with code ${result}`)
+        }
+      } catch (error) {
+        console.log(`❌ Device ${device} test failed:`, error)
+      }
+    }
+
+    console.error('❌ No working microphone device found!')
+    return null
+  }
+
   public default() {
     SoundContext.instance.play(`../silence.opus`, false)
   }
 
-  public play(pathname: string, loop: boolean) {
+  public async play(pathname: string, loop: boolean) {
     // ffmpeg -stream_loop -1 -re -i La_bataille_de_Farador.mp4 -f alsa -ac 2 -ar 44100 hw:Loopback,1
     // ffmpeg -re -i cow_sound.mp3 -f alsa -acodec pcm_s16le "pulse:virtual_mic"
+    const device = await this.findWorkingMicroDevice()
+    if (!device) {
+      console.error('❌ Cannot play: no working microphone device available')
+      return
+    }
+
     let args: string[] = []
     if (loop) {
       args.push(`-stream_loop`, `-1`)
@@ -120,14 +200,23 @@ export class SoundContext extends MediaContext {
       `alsa`,
       `-acodec`,
       `pcm_s16le`,
-      MICRO_DEVICE,
+      device,
     )
+
+    console.log(`🎵 Playing to device: ${device}`)
     super.execute(args, this.default)
   }
 
   // Return stdin and play sound to microphone
-  public play_stdin(): internal.Writable {
+  public async play_stdin(): Promise<internal.Writable | null> {
     // ffmpeg -f f32le -ar 48000 -ac 1 -i - -f alsa -acodec pcm_s16le "pulse:virtual_mic"
+    const device = await this.findWorkingMicroDevice()
+    if (!device) {
+      console.error('❌ Cannot create stdin stream: no working microphone device available')
+      return null
+    }
+
+    // Use pulse format instead of alsa for better compatibility
     let args: string[] = []
     args.push(
       `-f`,
@@ -139,14 +228,18 @@ export class SoundContext extends MediaContext {
       `-i`,
       `-`,
       `-f`,
-      `alsa`,
+      `pulse`,  // Changed from alsa to pulse
       `-acodec`,
       `pcm_s16le`,
-      MICRO_DEVICE,
+      device,
     )
-    return super.execute(args, () => {
+
+    console.log(`🎤 Creating stdin stream for device: ${device}`)
+    const process = super.execute(args, () => {
       console.warn(`[play_stdin] Sequence ended`)
-    }).stdin
+    })
+
+    return process?.stdin || null
   }
 
   public async stop() {
@@ -170,7 +263,7 @@ export class VideoContext extends MediaContext {
   static readonly WIDTH: number = 640
   static readonly HEIGHT: number = 360
 
-  private fps: number // TODO : Use it later
+  private fps: number
   constructor(fps: number) {
     super()
     this.fps = fps

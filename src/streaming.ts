@@ -48,6 +48,12 @@ export class Streaming {
     sample_rate: number | undefined,
     bot_id: string,
   ) {
+    console.log('🔧 Streaming constructor called with:')
+    console.log(`  - Input URL: ${input || 'not provided'}`)
+    console.log(`  - Output URL: ${output || 'not provided'}`)
+    console.log(`  - Sample Rate: ${sample_rate || DEFAULT_SAMPLE_RATE}`)
+    console.log(`  - Bot ID: ${bot_id}`)
+
     this.inputUrl = input
     this.outputUrl = output
     this.botId = bot_id
@@ -184,23 +190,54 @@ export class Streaming {
   }
 
   /**
-   * Setup external input WebSocket (for external services)
-   */
+ * Setup external input WebSocket with improved error handling and retry logic
+ */
   private setupExternalInputWS(): void {
+    if (!this.inputUrl) {
+      console.log('No input URL provided, skipping external input WebSocket setup')
+      return
+    }
+
+    console.log(`🔗 Attempting to connect to external input WebSocket: ${this.inputUrl}`)
+
     try {
-      this.input_ws = new WebSocket(this.inputUrl!)
+      this.input_ws = new WebSocket(this.inputUrl)
 
       this.input_ws.on('open', () => {
-        console.log('✅ External input WebSocket connected')
+        console.log('✅ External input WebSocket connected successfully')
+
+        // Send initial protocol message if needed
+        if (this.input_ws) {
+          this.input_ws.send(JSON.stringify({
+            protocol_version: 1,
+            bot_id: this.botId,
+            offset: 0.0,
+          }))
+        }
       })
 
       this.input_ws.on('error', (err: Error) => {
-        console.error(`External input WebSocket error: ${err}`)
+        console.error(`❌ External input WebSocket error: ${err.message}`)
+        console.error(`🔍 Error details:`, err)
+
+        // Don't fail the entire service, just log and continue
+        console.log('🔄 Continuing without external input WebSocket...')
+      })
+
+      this.input_ws.on('close', (code: number, reason: string) => {
+        console.log(`🔌 External input WebSocket closed: Code ${code}, Reason: ${reason}`)
+        this.input_ws = null
+
+        // Optionally implement retry logic here
+        if (code !== 1000) { // 1000 is normal closure
+          console.log('🔄 WebSocket closed unexpectedly, but continuing service...')
+        }
       })
 
       this.play_incoming_audio_chunks(this.input_ws)
     } catch (error) {
-      console.error(`Failed to setup external input WebSocket: ${error}`)
+      console.error(`❌ Failed to setup external input WebSocket: ${error}`)
+      console.log('🔄 Continuing without external input WebSocket...')
     }
   }
 
@@ -397,27 +434,45 @@ export class Streaming {
     this.pausedChunks = []
   }
 
-  // External audio injection (kept for backward compatibility)
-  private play_incoming_audio_chunks = (input_ws: WebSocket) => {
-    new SoundContext(this.sample_rate)
-    let stdin = SoundContext.instance.play_stdin()
-    let audio_stream = this.createAudioStreamFromWebSocket(input_ws)
+  /**
+ * Updated play_incoming_audio_chunks with better error handling
+ */
+  private play_incoming_audio_chunks = async (input_ws: WebSocket) => {
+    try {
+      const soundContext = new SoundContext(this.sample_rate)
 
-    // const loggingStream = new PassThrough()
-    // loggingStream.on('data', (chunk) => {
-    //   console.log('Data written to ffmpeg stdin:', chunk)
-    // })
+      // Wait for the stdin stream to be ready
+      const stdin = await soundContext.play_stdin()
+      if (!stdin) {
+        console.error('❌ Failed to create audio stdin stream')
+        return
+      }
 
-    // // Write to loggingStream instead of ffmpegStdin
-    // audio_stream.pipe(loggingStream).pipe(stdin)
+      console.log('✅ Audio stdin stream created successfully')
 
-    audio_stream.on('data', (chunk) => {
-      stdin.write(chunk)
-    })
+      const audio_stream = this.createAudioStreamFromWebSocket(input_ws)
 
-    audio_stream.on('end', () => {
-      stdin.end()
-    })
+      audio_stream.on('data', (chunk) => {
+        try {
+          stdin.write(chunk)
+        } catch (error) {
+          console.error('❌ Error writing to audio stdin:', error)
+        }
+      })
+
+      audio_stream.on('end', () => {
+        console.log('🔚 Audio stream ended')
+        stdin.end()
+      })
+
+      audio_stream.on('error', (error) => {
+        console.error('❌ Audio stream error:', error)
+        stdin.end()
+      })
+
+    } catch (error) {
+      console.error('❌ Error in play_incoming_audio_chunks:', error)
+    }
   }
 
   private createAudioStreamFromWebSocket = (input_ws: WebSocket) => {

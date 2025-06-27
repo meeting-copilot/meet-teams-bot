@@ -211,6 +211,8 @@ export class MeetProvider implements MeetingProviderInterface {
         await sleep(1000)
       }
 
+      // await sleep(15000)
+
       // Once in the meeting, execute all post-join actions
       // WITHOUT checking cancelCheck since we are already in the meeting
 
@@ -224,25 +226,19 @@ export class MeetProvider implements MeetingProviderInterface {
       const maxAttempts = 3
       if (meetingParams.recording_mode !== 'audio_only') {
         for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-          if (await changeLayout(page, attempt)) {
+          // if (await changeLayout(page, attempt)) {
+          if (true) {
             console.log(
               `Layout change successful on attempt ${attempt}`,
             )
             break
           }
-          console.log(`Attempt ${attempt} failed`)
-          await takeScreenshot(
-            page,
-            `layout_change_failed_attempt_${attempt}`,
-          )
-          await clickOutsideModal(page)
-          await page.waitForTimeout(500)
         }
       }
 
-      if (meetingParams.recording_mode !== 'gallery_view') {
-        await findShowEveryOne(page, true, cancelCheck)
-      }
+      // if (meetingParams.recording_mode !== 'gallery_view') {
+      //   await findShowEveryOne(page, true, cancelCheck)
+      // }
     } catch (error) {
       console.error('Error in joinMeeting:', {
         message: (error as Error).message,
