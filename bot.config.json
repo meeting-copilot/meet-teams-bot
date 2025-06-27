@@ -1,17 +1,18 @@
 {
-    "meeting_url": "https://meet.google.com/bfe-bdys-ads?authuser=0",
-    "bots_api_key": "your-api-key-here",
-    "bot_name": "Recording Bot",
-    "speech_to_text_provider": "Default",
-    "bots_webhook_url": "",
-    "bot_uuid": "unique-bot-identifier",
-    "recording_mode": "SpeakerView",
-    "mp4_s3_path": "recordings/output.mp4",
-    "custom_branding_bot_path": "https://your-domain.com/path/to/branding-image.jpg",
-    "automatic_leave": {
-      "waiting_room_timeout": 600,
-      "noone_joined_timeout": 600
-    },
-    "enter_message": "Recording bot has joined the meeting",
-    "secret": "your-secret-key"
+  "meeting_url": "https://meet.google.com/dwd-eduh-sfa?authuser=0",
+  "bots_api_key": "your-api-key-here",
+  "bot_name": "Recording Bot",
+  "speech_to_text_provider": "Default",
+  "bots_webhook_url": "",
+  "bot_uuid": "unique-bot-identifier",
+  "recording_mode": "SpeakerView",
+  "mp4_s3_path": "recordings/output.mp4",
+  "custom_branding_bot_path": "https://your-domain.com/path/to/branding-image.jpg",
+  "automatic_leave": {
+    "waiting_room_timeout": 600,
+    "noone_joined_timeout": 600
+  },
+  "enter_message": "Recording bot has joined the meeting",
+  "secret": "your-secret-key",
+  "streaming_input": "wss://guinea-prime-friendly.ngrok-free.app"
 }

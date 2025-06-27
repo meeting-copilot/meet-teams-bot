@@ -97,16 +97,16 @@ run_with_config() {
     local recording_mode=${RECORDING:-true}  # Par défaut true
     local debug_mode=${DEBUG:-false}  # Debug mode avec VNC
     local debug_logs=${DEBUG_LOGS:-false}  # Debug logs mode
-    
+
     if [ ! -f "$config_file" ]; then
         print_error "Configuration file '$config_file' not found"
         print_info "Please create a JSON configuration file. See params.json for example format."
         exit 1
     fi
-    
+
     local output_dir=$(create_output_dir)
     local config_json=$(cat "$config_file")
-    
+
     # Override meeting URL if provided as argument
     if [ -n "$override_meeting_url" ]; then
         print_info "Overriding meeting URL with: $override_meeting_url"
@@ -117,7 +117,7 @@ run_with_config() {
             print_error "Invalid argument: $kv (must be key=value)"
             exit 1
         fi
-    done
+    fi
     echo "$json"
 }
 
@@ -134,7 +134,21 @@ run_with_config_and_overrides() {
     fi
     local output_dir=$(create_output_dir)
     local processed_config=$(process_config "$config_json")
-    
+
+    # --- BEGIN: DEBUG MODE HANDLING ---
+    local debug_mode="${DEBUG:-false}"
+    local docker_args="-p 3000:3000"
+    local debug_env=""
+    if [ "$debug_mode" = "true" ]; then
+        docker_args="-p 5900:5900 -p 3000:3000"
+        debug_env="-e DEBUG_LOGS=true"
+        print_info "🔍 DEBUG MODE: VNC enabled on port 5900"
+        print_info "💻 Connect with VNC viewer to: localhost:5900"
+        print_info "📱 On Mac, you can use: open vnc://localhost:5900"
+        print_info "🐛 DEBUG logs enabled - verbose speakers logging activated"
+    fi
+    # --- END: DEBUG MODE HANDLING ---
+
     print_info "Running Meet Teams Bot with configuration: $config_file"
     print_info "Recording enabled: $recording_mode"
     print_info "Recording mode: screen (direct capture)"
@@ -142,7 +156,6 @@ run_with_config_and_overrides() {
         print_info "Meeting URL: $override_meeting_url"
     fi
     print_info "Output directory: $output_dir"
-<<<<<<< HEAD
     # Show masked config preview (only non-sensitive fields)
     local preview
     preview=$(echo "$processed_config" | jq 'del(.bots_api_key, .bots_webhook, .speech_to_text_api_key) | tostring' 2>&1 | head -c 100)
@@ -153,45 +166,18 @@ run_with_config_and_overrides() {
         print_info "Configuration loaded successfully"
     fi
     # Validate JSON
-=======
-    
-    # Debug mode avec VNC
-    local docker_args="-p 3000:3000"
-    if [ "$debug_mode" = "true" ]; then
-        docker_args="-p 5900:5900 -p 3000:3000"
-        print_info "🔍 DEBUG MODE: VNC enabled on port 5900"
-        print_info "💻 Connect with VNC viewer to: localhost:5900"
-        print_info "📱 On Mac, you can use: open vnc://localhost:5900"
-    fi
-    
-    # Debug: Show what we're sending to Docker (first 200 chars)
-    local preview=$(echo "$processed_config" | head -c 200)
-    print_info "Config preview: ${preview}..."
-    
-    # Validate JSON is not empty
->>>>>>> f287737 (teams and meet observer)
     if [ -z "$processed_config" ] || [ "$processed_config" = "{}" ]; then
         print_error "Invalid configuration format after processing."
         print_error "Original config_json: $config_json"
         print_error "Processed config: $processed_config"
         exit 1
     fi
-<<<<<<< HEAD
     # Extract bot_uuid for summary message
     local bot_uuid
     bot_uuid=$(echo "$processed_config" | jq -r '.bot_uuid // empty')
     # Run the bot
-=======
-    
-    # Add debug logs environment variable if enabled
-    local debug_env=""
-    if [ "$debug_logs" = "true" ]; then
-        debug_env="-e DEBUG_LOGS=true"
-        print_info "🐛 DEBUG logs enabled - verbose speakers logging activated"
-    fi
-    
->>>>>>> f287737 (teams and meet observer)
     echo "$processed_config" | docker run -i \
+        --name meet-teams-bot --rm \
         $docker_args \
         -e RECORDING="$recording_mode" \
         $debug_env \
@@ -234,13 +220,13 @@ run_with_config_and_overrides() {
 run_debug() {
     local config_file=$1
     local override_meeting_url=$2
-    
+
     print_info "🐛 Starting DEBUG mode - speakers debug logs + VNC enabled"
-    
+
     # Force enable debug modes
     export DEBUG_LOGS=true
     export DEBUG=true
-    
+
     # Call the regular run function with debug enabled
     run_with_config "$config_file" "$override_meeting_url"
 }
@@ -248,17 +234,17 @@ run_debug() {
 # Run bot with JSON input
 run_with_json() {
     local json_input=$1
-    local recording_mode=${RECORDING:-true}  # Par défaut true
-    local debug_mode=${DEBUG:-false}  # Debug mode avec VNC
-    local debug_logs=${DEBUG_LOGS:-false}  # Debug logs mode
+    local recording_mode=true  # Par défaut true
+    local debug_mode=true  # Debug mode avec VNC
+    local debug_logs=true  # Debug logs mode
     local output_dir=$(create_output_dir)
     local processed_config=$(process_config "$json_input")
-    
+
     print_info "Running Meet Teams Bot with provided JSON configuration"
     print_info "Recording enabled: $recording_mode"
     print_info "Recording mode: screen (direct capture)"
     print_info "Output directory: $output_dir"
-    
+
     # Debug mode avec VNC
     local docker_args="-p 3000:3000"
     if [ "$debug_mode" = "true" ]; then
@@ -267,35 +253,36 @@ run_with_json() {
         print_info "💻 Connect with VNC viewer to: localhost:5900"
         print_info "📱 On Mac, you can use: open vnc://localhost:5900"
     fi
-    
+
     # Debug: Show what we're sending to Docker (first 200 chars)
     local preview=$(echo "$processed_config" | head -c 200)
     print_info "Config preview: ${preview}..."
-    
+
     # Validate JSON is not empty
     if [ -z "$processed_config" ] || [ "$processed_config" = "{}" ]; then
         print_error "Processed configuration is empty or invalid"
         print_info "Original config: $json_input"
         exit 1
     fi
-    
+
     # Add debug logs environment variable if enabled
     local debug_env=""
     if [ "$debug_logs" = "true" ]; then
         debug_env="-e DEBUG_LOGS=true"
         print_info "🐛 DEBUG logs enabled - verbose speakers logging activated"
     fi
-    
+
     echo "$processed_config" | docker run -i \
+        --name meet-teams-bot --rm \
         $docker_args \
         -e RECORDING="$recording_mode" \
         $debug_env \
         -v "$(pwd)/$output_dir:/app/data" \
         meet-teams-bot
-    
+
     print_success "Bot execution completed"
     print_info "Recordings saved to: $output_dir"
-    
+
     # List generated files
     if [ -d "$output_dir" ] && [ "$(ls -A $output_dir)" ]; then
         print_success "Generated files:"
@@ -328,7 +315,7 @@ clean_recordings() {
 test_recording() {
     local duration=${1:-30}  # Par défaut 30 secondes
     local debug_mode=${DEBUG:-false}  # Debug mode avec VNC
-    
+
     print_info "🧪 Testing screen recording system"
     print_info "📅 Test duration: ${duration}s"
     print_info "📄 Using normal run command with params.json"
@@ -336,34 +323,34 @@ test_recording() {
         print_info "🔍 DEBUG MODE: VNC will be available on port 5900"
         print_info "💻 Connect with: open vnc://localhost:5900"
     fi
-    
+
     # Vérifier que Docker est disponible
     check_docker
-    
+
     # Vérifier que params.json existe
     if [ ! -f "params.json" ]; then
         print_error "params.json not found!"
         print_info "Please create params.json with your meeting configuration"
         return 1
     fi
-    
+
     # Construire l'image si nécessaire
     if ! docker images | grep -q meet-teams-bot; then
         print_info "Docker image not found, building..."
         build_image
     fi
-    
+
     print_info "🚀 Starting normal bot run with screen recording..."
     print_info "ℹ️ Will automatically stop after ${duration}s"
-    
+
     # Créer un fichier temporaire pour les logs
     local log_file="/tmp/test-run-$(date +%s).log"
-    
+
     # Fonction pour timeout compatible macOS/Linux
     run_with_timeout() {
         local timeout_duration=$1
         shift
-        
+
         if command -v gtimeout &> /dev/null; then
             # macOS avec coreutils installé
             gtimeout "$timeout_duration" "$@"
@@ -384,31 +371,31 @@ test_recording() {
             wait "$pid" 2>/dev/null
         fi
     }
-    
+
     # Lancer la commande run normale avec timeout
     local env_vars=""
     if [ "$debug_mode" = "true" ]; then
         env_vars="DEBUG=true"
     fi
-    
+
     if run_with_timeout $((duration + 10)) \
         env $env_vars ./run_bot.sh run params.json > "$log_file" 2>&1; then
         print_success "✅ Test completed successfully"
     else
         print_info "ℹ️ Test stopped after timeout (this is expected)"
     fi
-    
+
     # Analyser les logs
     print_info "📊 Analyzing test results..."
-    
+
     # Afficher les lignes clés des logs
     print_info "🔍 Key system messages:"
     grep -E "Virtual display|PulseAudio|audio devices|ScreenRecorder|Screen recording|Application|Bot execution|Generated files" "$log_file" | head -10 || true
-    
+
     # Compter les succès
     local success_count=0
     local total_tests=5
-    
+
     # Test 1: Virtual display
     if grep -q "Virtual display started" "$log_file"; then
         print_success "✅ Virtual display working"
@@ -416,7 +403,7 @@ test_recording() {
     else
         print_warning "⚠️ Virtual display may have issues"
     fi
-    
+
     # Test 2: PulseAudio
     if grep -q "PulseAudio started" "$log_file"; then
         print_success "✅ PulseAudio working"
@@ -424,7 +411,7 @@ test_recording() {
     else
         print_warning "⚠️ PulseAudio may have issues"
     fi
-    
+
     # Test 3: Virtual audio devices
     if grep -q "Virtual audio devices created" "$log_file"; then
         print_success "✅ Audio devices created"
@@ -432,7 +419,7 @@ test_recording() {
     else
         print_warning "⚠️ Audio devices may have issues"
     fi
-    
+
     # Test 4: Application started
     if grep -q "Starting application\|Running in serverless mode\|Running on http" "$log_file"; then
         print_success "✅ Application started"
@@ -440,7 +427,7 @@ test_recording() {
     else
         print_warning "⚠️ Application may not have started"
     fi
-    
+
     # Test 5: Configuration parsed
     if ! grep -q "Failed to parse JSON from stdin" "$log_file"; then
         print_success "✅ Configuration parsed successfully"
@@ -448,7 +435,7 @@ test_recording() {
     else
         print_warning "⚠️ Configuration parsing failed"
     fi
-    
+
     # Vérifier les fichiers générés
     local output_dir="./recordings"
     if [ -d "$output_dir" ] && [ "$(find $output_dir -name "*.mp4" -o -name "*.wav" | wc -l)" -gt 0 ]; then
@@ -458,11 +445,11 @@ test_recording() {
     else
         print_info "ℹ️ No recording files (normal for short test)"
     fi
-    
+
     # Compter les erreurs critiques
     local critical_errors=$(grep -i "error\|Error\|ERROR" "$log_file" | \
         grep -v "Console logger\|redis url\|Failed to parse JSON\|info.*error\|redis.*undefined" | wc -l | tr -d ' ')
-    
+
     if [ "$critical_errors" -eq 0 ]; then
         print_success "✅ No critical errors detected"
     else
@@ -470,7 +457,7 @@ test_recording() {
         grep -i "error\|Error\|ERROR" "$log_file" | \
             grep -v "Console logger\|redis url\|Failed to parse JSON\|info.*error\|redis.*undefined" | head -3 || true
     fi
-    
+
     # Résumé final
     local success_rate=$((success_count * 100 / total_tests))
     print_success "🎯 Test completed for screen recording"
@@ -478,7 +465,7 @@ test_recording() {
     print_info "Success rate: $success_count/$total_tests tests passed ($success_rate%)"
     print_info "Critical errors: $critical_errors"
     print_info "Full log available at: $log_file"
-    
+
     if [ "$success_rate" -ge 80 ] && [ "$critical_errors" -eq 0 ]; then
         print_success "🎉 Test passed! Screen recording system is working correctly"
         return 0
@@ -609,4 +596,4 @@ main() {
     esac
 }
 
-main "$@" 
+main "$@"
